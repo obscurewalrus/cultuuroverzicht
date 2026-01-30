@@ -18,12 +18,13 @@ class FransHalsMuseumScraper(VenueScraper):
         naam="Frans Hals Museum",
         adres="Groot Heiligland 62",
         plaats="Haarlem",
-        website="https://www.franshalsmuseum.nl",
+        website="https://franshalsmuseum.nl",
         venue_type=VenueType.MUSEUM,
     )
 
-    AGENDA_URL = "https://www.franshalsmuseum.nl/nl/te-zien-te-doen/"
-    EXPOSITIES_URL = "https://www.franshalsmuseum.nl/nl/tentoonstellingen/"
+    # Huidige URL structuur (zonder www)
+    AGENDA_URL = "https://franshalsmuseum.nl/nl/zien-en-doen"
+    EXPOSITIES_URL = "https://franshalsmuseum.nl/nl/zien-en-doen"
 
     def __init__(self):
         super().__init__(self.VENUE)

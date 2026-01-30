@@ -87,18 +87,40 @@ class VenueScraper(ABC):
         self._evenementen = self.scrape()
         return self._evenementen
 
-    def _maak_request(self, url: str, timeout: int = 10) -> Optional[str]:
+    def _maak_request(self, url: str, timeout: int = 15, verify_ssl: bool = True) -> Optional[str]:
         """Maak een HTTP request met foutafhandeling."""
         import requests
+        import urllib3
+
+        # Onderdruk SSL warnings als we SSL verificatie uitschakelen
+        if not verify_ssl:
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "nl-NL,nl;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
         }
 
         try:
-            response = requests.get(url, headers=headers, timeout=timeout)
+            response = requests.get(
+                url,
+                headers=headers,
+                timeout=timeout,
+                verify=verify_ssl,
+                allow_redirects=True,
+            )
             response.raise_for_status()
             return response.text
+        except requests.exceptions.SSLError:
+            # Probeer opnieuw zonder SSL verificatie
+            if verify_ssl:
+                return self._maak_request(url, timeout, verify_ssl=False)
+            print(f"SSL fout bij ophalen {url}")
+            return None
         except requests.RequestException as e:
             print(f"Fout bij ophalen {url}: {e}")
             return None

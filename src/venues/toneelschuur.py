@@ -1,5 +1,6 @@
 """
-Scraper voor Toneelschuur Haarlem - theater en film.
+Scraper voor De Schuur Haarlem - theater en film.
+(Voorheen Toneelschuur, hernoemd in 2021)
 """
 
 import re
@@ -12,18 +13,20 @@ from .base import Venue, VenueType, Evenement, VenueScraper
 
 
 class ToneelschuurScraper(VenueScraper):
-    """Scraper voor Toneelschuur Haarlem (theater en Filmschuur)."""
+    """Scraper voor De Schuur Haarlem (theater en film)."""
 
     VENUE = Venue(
-        naam="Toneelschuur",
+        naam="De Schuur",
         adres="Lange Begijnestraat 9",
         plaats="Haarlem",
-        website="https://www.toneelschuur.nl",
+        website="https://www.schuur.nl",
         venue_type=VenueType.THEATER,
     )
 
-    THEATER_URL = "https://www.toneelschuur.nl/theater/agenda"
-    FILM_URL = "https://www.toneelschuur.nl/filmschuur/agenda"
+    # De Schuur combineert theater en film op één agenda
+    AGENDA_URL = "https://www.schuur.nl/agenda/"
+    THEATER_URL = "https://www.schuur.nl/agenda/"
+    FILM_URL = "https://www.schuur.nl/agenda/"
 
     def __init__(self, include_film: bool = True):
         super().__init__(self.VENUE)

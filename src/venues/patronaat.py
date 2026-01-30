@@ -18,11 +18,11 @@ class PatronaatScraper(VenueScraper):
         naam="Patronaat",
         adres="Zijlsingel 2",
         plaats="Haarlem",
-        website="https://www.patronaat.nl",
+        website="https://patronaat.nl",
         venue_type=VenueType.CONCERTZAAL,
     )
 
-    AGENDA_URL = "https://www.patronaat.nl/agenda/"
+    AGENDA_URL = "https://patronaat.nl/programma/"
 
     def __init__(self):
         super().__init__(self.VENUE)

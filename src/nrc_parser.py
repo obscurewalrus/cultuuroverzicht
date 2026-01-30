@@ -60,8 +60,19 @@ class NRCTip:
 class NRCParser:
     """Parser voor NRC cultuur en boeken RSS feeds."""
 
-    CULTUUR_FEED = "http://www.nrc.nl/nieuws/categorie/cultuur/rss.php"
-    BOEKEN_FEED = "http://www.nrc.nl/boeken/rss.php"
+    # NRC RSS feed URLs (meerdere opties voor fallback)
+    CULTUUR_FEEDS = [
+        "https://www.nrc.nl/sectie/cultuur/rss/",
+        "https://www.nrc.nl/rss/",
+        "https://nrc.nl/cultuur/rss/",
+    ]
+    BOEKEN_FEEDS = [
+        "https://www.nrc.nl/sectie/boeken/rss/",
+        "https://www.nrc.nl/boeken/rss/",
+    ]
+
+    # Fallback: algemene feed
+    ALGEMEEN_FEED = "https://www.nrc.nl/rss/"
 
     # Patronen voor het extraheren van namen uit titels/beschrijvingen
     ARTIEST_PATRONEN = [
@@ -237,21 +248,53 @@ class NRCParser:
 
         return "algemeen"
 
+    def _probeer_feeds(self, urls: list[str], categorie: str) -> list[NRCTip]:
+        """Probeer meerdere feed URLs totdat er één werkt."""
+        for url in urls:
+            try:
+                tips = self.parse_feed(url, categorie)
+                if tips:
+                    return tips
+            except Exception:
+                continue
+        return []
+
     def laad_alle_tips(self) -> list[NRCTip]:
-        """Laad tips van beide NRC feeds."""
+        """Laad tips van NRC feeds met fallback opties."""
         self.tips = []
 
-        try:
-            cultuur_tips = self.parse_feed(self.CULTUUR_FEED, "cultuur")
+        # Probeer cultuur feeds
+        cultuur_tips = self._probeer_feeds(self.CULTUUR_FEEDS, "cultuur")
+        if cultuur_tips:
             self.tips.extend(cultuur_tips)
-        except Exception as e:
-            print(f"Waarschuwing: Kon cultuur feed niet laden: {e}")
+        else:
+            # Fallback naar algemene feed, filter op cultuur keywords
+            try:
+                algemene_tips = self.parse_feed(self.ALGEMEEN_FEED, "cultuur")
+                cultuur_keywords = ["film", "theater", "concert", "museum", "expositie", "kunst"]
+                for tip in algemene_tips:
+                    tekst = f"{tip.titel} {tip.beschrijving}".lower()
+                    if any(kw in tekst for kw in cultuur_keywords):
+                        self.tips.append(tip)
+            except Exception as e:
+                print(f"Waarschuwing: Kon cultuur feed niet laden: {e}")
 
-        try:
-            boeken_tips = self.parse_feed(self.BOEKEN_FEED, "boeken")
+        # Probeer boeken feeds
+        boeken_tips = self._probeer_feeds(self.BOEKEN_FEEDS, "boeken")
+        if boeken_tips:
             self.tips.extend(boeken_tips)
-        except Exception as e:
-            print(f"Waarschuwing: Kon boeken feed niet laden: {e}")
+        else:
+            # Fallback naar algemene feed, filter op boeken keywords
+            try:
+                algemene_tips = self.parse_feed(self.ALGEMEEN_FEED, "boeken")
+                boeken_keywords = ["boek", "roman", "schrijver", "auteur", "debuut", "recensie"]
+                for tip in algemene_tips:
+                    tekst = f"{tip.titel} {tip.beschrijving}".lower()
+                    if any(kw in tekst for kw in boeken_keywords):
+                        if tip not in self.tips:  # Voorkom duplicaten
+                            self.tips.append(tip)
+            except Exception as e:
+                print(f"Waarschuwing: Kon boeken feed niet laden: {e}")
 
         # Sorteer op datum (nieuwste eerst)
         self.tips.sort(key=lambda t: t.publicatiedatum, reverse=True)

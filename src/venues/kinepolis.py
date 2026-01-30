@@ -15,14 +15,15 @@ class KinepolisScraper(VenueScraper):
     """Scraper voor Kinepolis bioscoop in Hoofddorp."""
 
     VENUE = Venue(
-        naam="Kinepolis Hoofddorp",
-        adres="Polaplein 450",
+        naam="Kinepolis CineMeerse",
+        adres="Raadhuisplein 12",
         plaats="Hoofddorp",
         website="https://kinepolis.nl",
         venue_type=VenueType.BIOSCOOP,
     )
 
-    AGENDA_URL = "https://kinepolis.nl/bioscopen/kinepolis-hoofddorp"
+    # CineMeerse is de Kinepolis bioscoop in Hoofddorp
+    AGENDA_URL = "https://kinepolis.nl/bioscopen/kinepolis-cinemeerse-hoofddorp"
 
     def __init__(self):
         super().__init__(self.VENUE)
