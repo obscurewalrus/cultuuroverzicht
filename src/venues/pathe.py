@@ -49,25 +49,62 @@ class PatheScraper(VenueScraper):
     def _parse_json_data(self, html: str) -> list[Evenement]:
         """Extraheer films uit JSON data in de pagina."""
         evenementen = []
-        soup = BeautifulSoup(html, "lxml")
+        seen_slugs = set()
 
-        # Methode 1: JSON-LD script tags
-        for script in soup.select('script[type="application/ld+json"]'):
-            try:
-                data = json.loads(script.string)
-                events = self._extract_from_jsonld(data)
-                evenementen.extend(events)
-            except (json.JSONDecodeError, TypeError):
-                continue
+        # Methode 1: Zoek inline JSON objecten met slug en title
+        # Pathé gebruikt inline JSON in de vorm: {"slug":"film-naam","title":"Film Naam",...}
+        pattern = r'\{"slug":"([^"]+)","title":"([^"]+)"[^}]*?"releaseAt":\["([^"]+)"\]'
+        for match in re.finditer(pattern, html):
+            slug = match.group(1)
+            title = match.group(2)
+            release_date = match.group(3)
 
-        # Methode 2: Next.js/React data
-        for script in soup.select('script#__NEXT_DATA__'):
-            try:
-                data = json.loads(script.string)
-                events = self._extract_from_state(data)
-                evenementen.extend(events)
-            except (json.JSONDecodeError, TypeError):
+            if slug in seen_slugs:
                 continue
+            seen_slugs.add(slug)
+
+            try:
+                datum = datetime.strptime(release_date, "%Y-%m-%d").replace(hour=20, minute=0)
+            except ValueError:
+                datum = datetime.now().replace(hour=20, minute=0)
+
+            evenementen.append(Evenement(
+                titel=title,
+                venue=self.venue,
+                datum=datum,
+                url=f"{self.VENUE.website}/film/{slug}",
+                genre="film",
+            ))
+
+        # Methode 2: Alternatief patroon zonder releaseAt
+        if not evenementen:
+            pattern2 = r'\{"slug":"([^"]+)","title":"([^"]+)"'
+            for match in re.finditer(pattern2, html):
+                slug = match.group(1)
+                title = match.group(2)
+
+                if slug in seen_slugs:
+                    continue
+                seen_slugs.add(slug)
+
+                evenementen.append(Evenement(
+                    titel=title,
+                    venue=self.venue,
+                    datum=datetime.now().replace(hour=20, minute=0),
+                    url=f"{self.VENUE.website}/film/{slug}",
+                    genre="film",
+                ))
+
+        # Methode 3: JSON-LD als fallback
+        if not evenementen:
+            soup = BeautifulSoup(html, "lxml")
+            for script in soup.select('script[type="application/ld+json"]'):
+                try:
+                    data = json.loads(script.string)
+                    events = self._extract_from_jsonld(data)
+                    evenementen.extend(events)
+                except (json.JSONDecodeError, TypeError):
+                    continue
 
         return evenementen
 
@@ -140,10 +177,19 @@ class PatheScraper(VenueScraper):
             slug = data.get("slug", data.get("id", ""))
             url = f"{self.VENUE.website}/film/{slug}" if slug else self.AGENDA_URL
 
+            # Parse release date als aanwezig
+            datum = datetime.now().replace(hour=20, minute=0)
+            release_at = data.get("releaseAt", [])
+            if release_at and isinstance(release_at, list) and release_at[0]:
+                try:
+                    datum = datetime.strptime(release_at[0], "%Y-%m-%d").replace(hour=20, minute=0)
+                except ValueError:
+                    pass
+
             return Evenement(
                 titel=titel,
                 venue=self.venue,
-                datum=datetime.now().replace(hour=20, minute=0),
+                datum=datum,
                 url=url,
                 genre="film",
             )
