@@ -26,9 +26,35 @@ class NRCTip:
     auteurs: list[str] = field(default_factory=list)
     genres: list[str] = field(default_factory=list)
 
+    # NRC waardering (0-5 ballen, None als onbekend)
+    waardering: Optional[int] = None
+    waardering_type: str = ""  # 'film', 'album', 'boek', 'theater', etc.
+
     def __str__(self) -> str:
         datum = self.publicatiedatum.strftime("%d-%m-%Y")
-        return f"[{self.categorie}] {self.titel} ({datum})"
+        ballen = self.ballen_weergave if self.waardering else ""
+        return f"[{self.categorie}] {self.titel} {ballen}({datum})"
+
+    @property
+    def ballen_weergave(self) -> str:
+        """Geef waardering weer als ballen (●○)."""
+        if self.waardering is None:
+            return ""
+        vol = "●" * self.waardering
+        leeg = "○" * (5 - self.waardering)
+        return f"{vol}{leeg} "
+
+    @property
+    def is_aanrader(self) -> bool:
+        """True als dit een aanrader is (4+ ballen of expliciet aanbevolen)."""
+        if self.waardering and self.waardering >= 4:
+            return True
+        # Check voor expliciete aanbevelingen in tekst
+        tekst = f"{self.titel} {self.beschrijving}".lower()
+        return any(term in tekst for term in [
+            "aanrader", "must-see", "meesterwerk", "topfilm",
+            "niet missen", "absolute must", "briljant"
+        ])
 
 
 class NRCParser:
@@ -59,6 +85,26 @@ class NRCParser:
         "film": ["film", "cinema", "bioscoop", "documentaire"],
         "literatuur": ["boek", "roman", "bundel", "dichter", "poëzie", "lezing"],
         "kunst": ["expositie", "tentoonstelling", "museum", "galerie"],
+    }
+
+    # Patronen voor NRC waardering (ballen)
+    # NRC gebruikt diverse notaties: "●●●●○", "4/5", "vier ballen", "★★★★☆"
+    WAARDERING_PATRONEN = [
+        # Unicode ballen: ●●●●○ of ⬤⬤⬤○○
+        (r"([●⬤]{1,5})[○◯]{0,4}", "ballen"),
+        # Sterren: ★★★★☆
+        (r"([★]{1,5})[☆]{0,4}", "sterren"),
+        # Fractie notatie: 4/5, 3/5
+        (r"(\d)\s*/\s*5\s*(?:ballen|sterren)?", "fractie"),
+        # Tekstueel: "vier ballen", "3 ballen", "vijf sterren"
+        (r"(een|twee|drie|vier|vijf|\d)\s*(?:ballen?|sterren?)", "tekst"),
+        # Recensie score indicatie
+        (r"score[:\s]+(\d)[/\s]*5", "score"),
+    ]
+
+    TEKST_NAAR_NUMMER = {
+        "een": 1, "twee": 2, "drie": 3, "vier": 4, "vijf": 5,
+        "1": 1, "2": 2, "3": 3, "4": 4, "5": 5,
     }
 
     def __init__(self):
@@ -111,6 +157,11 @@ class NRCParser:
             tip.auteurs = self._extract_names(tekst, self.AUTEUR_PATRONEN)
             tip.genres = self._extract_genres(tekst)
 
+            # Extraheer waardering (ballen)
+            waardering, waardering_type = self._extract_waardering(tekst)
+            tip.waardering = waardering
+            tip.waardering_type = waardering_type
+
             return tip
 
         except Exception:
@@ -135,6 +186,56 @@ class NRCParser:
             if any(kw in tekst_lower for kw in keywords):
                 gevonden.append(genre)
         return gevonden
+
+    def _extract_waardering(self, tekst: str) -> tuple[Optional[int], str]:
+        """
+        Extraheer NRC waardering (ballen/sterren) uit tekst.
+
+        Returns:
+            Tuple van (waardering 1-5, type waardering)
+        """
+        for patroon, notatie_type in self.WAARDERING_PATRONEN:
+            match = re.search(patroon, tekst, re.IGNORECASE)
+            if match:
+                waarde = match.group(1)
+
+                if notatie_type == "ballen" or notatie_type == "sterren":
+                    # Tel het aantal gevulde symbolen
+                    return len(waarde), self._bepaal_waardering_type(tekst)
+
+                elif notatie_type == "fractie" or notatie_type == "score":
+                    # Direct nummer
+                    nummer = int(waarde)
+                    if 1 <= nummer <= 5:
+                        return nummer, self._bepaal_waardering_type(tekst)
+
+                elif notatie_type == "tekst":
+                    # Converteer tekst naar nummer
+                    nummer = self.TEKST_NAAR_NUMMER.get(waarde.lower())
+                    if nummer:
+                        return nummer, self._bepaal_waardering_type(tekst)
+
+        return None, ""
+
+    def _bepaal_waardering_type(self, tekst: str) -> str:
+        """Bepaal het type waardering (film, album, boek, etc.)."""
+        tekst_lower = tekst.lower()
+
+        type_keywords = {
+            "film": ["film", "bioscoop", "cinema", "regisseur"],
+            "album": ["album", "plaat", "cd", "lp", "muziek"],
+            "boek": ["boek", "roman", "debuut", "bundel", "schrijver"],
+            "theater": ["theater", "toneel", "voorstelling", "musical"],
+            "serie": ["serie", "seizoen", "aflevering", "netflix", "streaming"],
+            "concert": ["concert", "optreden", "tour", "live"],
+            "expositie": ["expositie", "tentoonstelling", "museum"],
+        }
+
+        for wtype, keywords in type_keywords.items():
+            if any(kw in tekst_lower for kw in keywords):
+                return wtype
+
+        return "algemeen"
 
     def laad_alle_tips(self) -> list[NRCTip]:
         """Laad tips van beide NRC feeds."""

@@ -21,10 +21,37 @@ class Match:
     match_type: str  # 'exact', 'artiest', 'titel', 'fuzzy'
 
     def __str__(self) -> str:
+        waardering = self.tip.ballen_weergave if self.tip.waardering else ""
         return (
-            f"[{self.score:.0%}] {self.tip.titel}\n"
+            f"[{self.score:.0%}] {waardering}{self.tip.titel}\n"
             f"    → {self.evenement}"
         )
+
+    @property
+    def prioriteit(self) -> float:
+        """
+        Gecombineerde prioriteit score voor sortering.
+        Combineert match score met NRC waardering.
+        """
+        # Basis: match score (0-1)
+        basis = self.score
+
+        # Bonus voor hoge NRC waardering
+        if self.tip.waardering:
+            # 4 ballen = +20%, 5 ballen = +30%
+            waardering_bonus = (self.tip.waardering - 3) * 0.1 if self.tip.waardering >= 4 else 0
+            basis += waardering_bonus
+
+        # Bonus als het een expliciete aanrader is
+        if self.tip.is_aanrader:
+            basis += 0.05
+
+        return min(basis, 1.0)
+
+    @property
+    def is_topkeuze(self) -> bool:
+        """True als dit een topkeuze is (goede match + hoge waardering)."""
+        return self.score >= 0.7 and self.tip.waardering is not None and self.tip.waardering >= 4
 
 
 @dataclass
@@ -43,6 +70,31 @@ class MatchResult:
             return 0.0
         return len(self.matches) / totaal
 
+    @property
+    def topkeuzes(self) -> list[Match]:
+        """Geef alleen de topkeuzes terug (hoge match + hoge waardering)."""
+        return [m for m in self.matches if m.is_topkeuze]
+
+    @property
+    def aanraders(self) -> list[Match]:
+        """Geef matches terug van NRC-aanraders (4+ ballen)."""
+        return [m for m in self.matches if m.tip.is_aanrader]
+
+    def sorteer_op_prioriteit(self) -> None:
+        """Sorteer matches op gecombineerde prioriteit (score + waardering)."""
+        self.matches.sort(key=lambda m: m.prioriteit, reverse=True)
+
+    def sorteer_op_datum(self) -> None:
+        """Sorteer matches op evenement datum."""
+        self.matches.sort(key=lambda m: m.evenement.datum)
+
+    def sorteer_op_waardering(self) -> None:
+        """Sorteer matches op NRC waardering (hoogste eerst)."""
+        self.matches.sort(
+            key=lambda m: (m.tip.waardering or 0, m.score),
+            reverse=True
+        )
+
 
 class Matcher:
     """
@@ -52,6 +104,7 @@ class Matcher:
     1. Exact match op artiest/auteursnaam
     2. Fuzzy match op titel
     3. Genre + keyword matching
+    4. NRC waardering als bonus factor
     """
 
     # Minimum scores voor verschillende match types
@@ -60,8 +113,15 @@ class Matcher:
     TITEL_THRESHOLD = 0.70
     FUZZY_THRESHOLD = 0.55
 
-    def __init__(self, min_score: float = 0.5):
+    def __init__(
+        self,
+        min_score: float = 0.5,
+        alleen_aanraders: bool = False,
+        min_waardering: Optional[int] = None,
+    ):
         self.min_score = min_score
+        self.alleen_aanraders = alleen_aanraders
+        self.min_waardering = min_waardering
         self._stopwoorden = self._laad_stopwoorden()
 
     def match(
@@ -73,7 +133,17 @@ class Matcher:
         result = MatchResult()
         gematchte_evenementen = set()
 
-        for tip in tips:
+        # Filter tips indien nodig
+        gefilterde_tips = tips
+        if self.alleen_aanraders:
+            gefilterde_tips = [t for t in tips if t.is_aanrader]
+        if self.min_waardering:
+            gefilterde_tips = [
+                t for t in gefilterde_tips
+                if t.waardering and t.waardering >= self.min_waardering
+            ]
+
+        for tip in gefilterde_tips:
             beste_match = self._vind_beste_match(tip, evenementen)
 
             if beste_match and beste_match.score >= self.min_score:
@@ -87,8 +157,8 @@ class Matcher:
             if id(ev) not in gematchte_evenementen:
                 result.ongematchte_evenementen.append(ev)
 
-        # Sorteer matches op score
-        result.matches.sort(key=lambda m: m.score, reverse=True)
+        # Sorteer matches op prioriteit (score + waardering)
+        result.sorteer_op_prioriteit()
 
         return result
 
@@ -240,7 +310,13 @@ def match_tips_met_evenementen(
     tips: list[NRCTip],
     evenementen: list[Evenement],
     min_score: float = 0.5,
+    alleen_aanraders: bool = False,
+    min_waardering: Optional[int] = None,
 ) -> MatchResult:
     """Convenience functie voor matching."""
-    matcher = Matcher(min_score=min_score)
+    matcher = Matcher(
+        min_score=min_score,
+        alleen_aanraders=alleen_aanraders,
+        min_waardering=min_waardering,
+    )
     return matcher.match(tips, evenementen)

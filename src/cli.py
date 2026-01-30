@@ -20,6 +20,11 @@ from .venues import (
     StadsschouwburgScraper,
     ToneelschuurScraper,
     DeMeerseScraper,
+    PatheScraper,
+    KinepolisScraper,
+    FransHalsMuseumScraper,
+    AthenaeumscraPer,
+    VrijeDenkerScraper,
 )
 from .venues.base import Evenement
 
@@ -45,11 +50,21 @@ def laad_lokale_evenementen(
     console.print("[bold blue]Lokale agenda's laden...[/bold blue]")
 
     scrapers = [
+        # Concertzalen
         PatronaatScraper(),
         PhilharmonieScraper(),
+        # Theaters
         StadsschouwburgScraper(),
         ToneelschuurScraper(),
         DeMeerseScraper(),
+        # Bioscopen
+        PatheScraper(),
+        KinepolisScraper(),
+        # Musea
+        FransHalsMuseumScraper(),
+        # Boekhandels
+        AthenaeumscraPer(),
+        VrijeDenkerScraper(),
     ]
 
     alle_evenementen = []
@@ -78,13 +93,29 @@ def laad_lokale_evenementen(
     return alle_evenementen
 
 
-def toon_matches(result: MatchResult, max_items: int = 20):
+def toon_matches(result: MatchResult, max_items: int = 20, toon_topkeuzes: bool = False):
     """Toon gematchte NRC tips met lokale evenementen."""
     if not result.matches:
         console.print("\n[yellow]Geen matches gevonden.[/yellow]")
         return
 
+    # Optioneel: toon eerst topkeuzes apart
+    if toon_topkeuzes and result.topkeuzes:
+        console.print(f"\n[bold yellow]Topkeuzes ({len(result.topkeuzes)})[/bold yellow]")
+        console.print("[dim]Hoge NRC-waardering + goede match[/dim]\n")
+        for match in result.topkeuzes[:5]:
+            ballen = match.tip.ballen_weergave
+            console.print(f"  {ballen}[bold]{match.tip.titel}[/bold]")
+            console.print(f"    → {match.evenement.titel} @ {match.evenement.venue.naam}")
+            console.print(f"    → {match.evenement.datum.strftime('%a %d %b %H:%M')}")
+            console.print()
+
     console.print(f"\n[bold green]Gevonden: {len(result.matches)} matches[/bold green]")
+
+    # Toon aantal aanraders
+    aanraders = [m for m in result.matches if m.tip.waardering and m.tip.waardering >= 4]
+    if aanraders:
+        console.print(f"[dim]Waarvan {len(aanraders)} met 4+ ballen[/dim]")
 
     table = Table(
         title="NRC Tips in jouw regio",
@@ -93,23 +124,35 @@ def toon_matches(result: MatchResult, max_items: int = 20):
         header_style="bold magenta",
     )
 
-    table.add_column("Match", style="cyan", width=8)
-    table.add_column("NRC Tip", style="white", width=30)
-    table.add_column("Evenement", style="green", width=25)
-    table.add_column("Venue", style="blue", width=20)
+    table.add_column("Score", style="cyan", width=7)
+    table.add_column("NRC", style="yellow", width=7)
+    table.add_column("Tip", style="white", width=28)
+    table.add_column("Evenement", style="green", width=23)
+    table.add_column("Venue", style="blue", width=18)
     table.add_column("Datum", style="yellow", width=12)
 
     for match in result.matches[:max_items]:
         score = f"{match.score:.0%}"
-        tip_titel = match.tip.titel[:28] + "..." if len(match.tip.titel) > 30 else match.tip.titel
-        event_titel = match.evenement.titel[:23] + "..." if len(match.evenement.titel) > 25 else match.evenement.titel
-        venue = match.evenement.venue.naam
+
+        # NRC waardering als ballen
+        if match.tip.waardering:
+            ballen = "●" * match.tip.waardering + "○" * (5 - match.tip.waardering)
+        else:
+            ballen = "[dim]-[/dim]"
+
+        tip_titel = match.tip.titel[:26] + "..." if len(match.tip.titel) > 28 else match.tip.titel
+        event_titel = match.evenement.titel[:21] + "..." if len(match.evenement.titel) > 23 else match.evenement.titel
+        venue = match.evenement.venue.naam[:16] + "..." if len(match.evenement.venue.naam) > 18 else match.evenement.venue.naam
         datum = match.evenement.datum.strftime("%d %b %H:%M")
+
+        # Highlight topkeuzes
+        if match.is_topkeuze:
+            tip_titel = f"[bold]{tip_titel}[/bold]"
 
         if match.evenement.uitverkocht:
             event_titel = f"[strike]{event_titel}[/strike]"
 
-        table.add_row(score, tip_titel, event_titel, venue, datum)
+        table.add_row(score, ballen, tip_titel, event_titel, venue, datum)
 
     console.print(table)
 
@@ -160,6 +203,13 @@ def toon_agenda(evenementen: list[Evenement], max_items: int = 30):
 
 def toon_tips(tips: list[NRCTip], max_items: int = 15):
     """Toon NRC tips."""
+    # Toon statistieken over waarderingen
+    met_waardering = [t for t in tips if t.waardering is not None]
+    aanraders = [t for t in tips if t.is_aanrader]
+
+    if met_waardering:
+        console.print(f"\n[dim]{len(met_waardering)} tips met waardering, {len(aanraders)} aanraders (4+ ballen)[/dim]")
+
     table = Table(
         title="Recente NRC Cultuur & Boeken Tips",
         box=box.ROUNDED,
@@ -168,17 +218,30 @@ def toon_tips(tips: list[NRCTip], max_items: int = 15):
     )
 
     table.add_column("Cat", style="cyan", width=8)
-    table.add_column("Titel", style="white", width=45)
-    table.add_column("Genres", style="green", width=20)
+    table.add_column("NRC", style="yellow", width=7)
+    table.add_column("Titel", style="white", width=40)
+    table.add_column("Genres", style="green", width=18)
     table.add_column("Datum", style="yellow", width=10)
 
     for tip in tips[:max_items]:
         cat = tip.categorie[:7]
-        titel = tip.titel[:43] + "..." if len(tip.titel) > 45 else tip.titel
+
+        # NRC waardering als ballen
+        if tip.waardering:
+            ballen = "●" * tip.waardering + "○" * (5 - tip.waardering)
+        else:
+            ballen = "[dim]-[/dim]"
+
+        titel = tip.titel[:38] + "..." if len(tip.titel) > 40 else tip.titel
+
+        # Highlight aanraders
+        if tip.is_aanrader:
+            titel = f"[bold]{titel}[/bold]"
+
         genres = ", ".join(tip.genres[:2]) if tip.genres else "-"
         datum = tip.publicatiedatum.strftime("%d %b")
 
-        table.add_row(cat, titel, genres, datum)
+        table.add_row(cat, ballen, titel, genres, datum)
 
     console.print(table)
 
@@ -191,10 +254,13 @@ def main():
         epilog="""
 Voorbeelden:
   cultuuroverzicht                    # Toon gematchte NRC tips
+  cultuuroverzicht --aanraders        # Alleen 4+ ballen tips
+  cultuuroverzicht --topkeuzes        # Highlight beste matches
   cultuuroverzicht --agenda           # Toon volledige lokale agenda
   cultuuroverzicht --tips             # Toon alleen NRC tips
   cultuuroverzicht --zoek "jazz"      # Zoek in tips en evenementen
   cultuuroverzicht --dagen 14         # Bekijk komende 2 weken
+  cultuuroverzicht --min-ballen 4     # Alleen tips met 4+ ballen
         """,
     )
 
@@ -207,6 +273,22 @@ Voorbeelden:
         "--tips", "-t",
         action="store_true",
         help="Toon alleen NRC tips",
+    )
+    parser.add_argument(
+        "--aanraders",
+        action="store_true",
+        help="Toon alleen NRC aanraders (4+ ballen)",
+    )
+    parser.add_argument(
+        "--topkeuzes",
+        action="store_true",
+        help="Highlight topkeuzes (hoge match + hoge waardering)",
+    )
+    parser.add_argument(
+        "--min-ballen",
+        type=int,
+        choices=[1, 2, 3, 4, 5],
+        help="Minimum NRC waardering (1-5 ballen)",
     )
     parser.add_argument(
         "--zoek", "-z",
@@ -229,6 +311,12 @@ Voorbeelden:
         "--alleen-beschikbaar",
         action="store_true",
         help="Verberg uitverkochte evenementen",
+    )
+    parser.add_argument(
+        "--sorteer",
+        choices=["prioriteit", "datum", "waardering"],
+        default="prioriteit",
+        help="Sorteer matches op: prioriteit, datum, of waardering",
     )
     parser.add_argument(
         "--max", "-n",
@@ -275,19 +363,41 @@ Voorbeelden:
 
     # Toon resultaten
     if args.tips:
-        toon_tips(tips, max_items=args.max)
+        # Filter tips indien nodig
+        gefilterde_tips = tips
+        if args.aanraders:
+            gefilterde_tips = [t for t in tips if t.is_aanrader]
+        if args.min_ballen:
+            gefilterde_tips = [t for t in gefilterde_tips if t.waardering and t.waardering >= args.min_ballen]
+        toon_tips(gefilterde_tips, max_items=args.max)
     elif args.agenda:
         toon_agenda(evenementen, max_items=args.max)
     else:
         # Default: toon matches
-        matcher = Matcher(min_score=args.min_score)
+        matcher = Matcher(
+            min_score=args.min_score,
+            alleen_aanraders=args.aanraders,
+            min_waardering=args.min_ballen,
+        )
         result = matcher.match(tips, evenementen)
-        toon_matches(result, max_items=args.max)
+
+        # Sorteer volgens voorkeur
+        if args.sorteer == "datum":
+            result.sorteer_op_datum()
+        elif args.sorteer == "waardering":
+            result.sorteer_op_waardering()
+        # Default is al prioriteit
+
+        toon_matches(result, max_items=args.max, toon_topkeuzes=args.topkeuzes)
 
         if result.match_percentage > 0:
             console.print(
                 f"\n[dim]Match rate: {result.match_percentage:.0%} van NRC tips gevonden in lokale agenda's[/dim]"
             )
+
+        # Toon aantal aanraders in resultaat
+        if result.aanraders:
+            console.print(f"[dim]Aanraders in regio: {len(result.aanraders)}[/dim]")
 
 
 if __name__ == "__main__":
